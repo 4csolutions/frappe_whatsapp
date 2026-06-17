@@ -10,57 +10,129 @@
  "field_order": [
   "account_name",
   "status",
-  "token",
-  "url",
-  "version",
-  "webhook_verify_token",
+  "provider",
+  "instance_type",
+  "connection_status",
+  "last_connected_on",
+  "last_sync_on",
   "column_break_byyq",
   "phone_id",
   "app_id",
   "business_id",
+  "token",
+  "url",
+  "version",
+  "webhook_verify_token",
+  "evolution_api_url",
+  "evolution_instance_name",
+  "evolution_api_key",
+  "section_break_webhook",
+  "auto_register_webhook",
+  "webhook_registered",
+  "webhook_url",
+  "section_break_default",
   "is_default_incoming",
   "is_default_outgoing",
   "allow_auto_read_receipt"
  ],
  "fields": [
   {
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "label": "Provider",
+   "options": "Meta\nEvolution API",
+   "default": "Meta",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "instance_type",
+   "fieldtype": "Select",
+   "label": "Instance Type",
+   "options": "Baileys\nBusiness",
+   "default": "Baileys",
+   "depends_on": "eval:doc.provider=='Evolution API'"
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Data",
+   "label": "Connection Status",
+   "default": "Disconnected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_connected_on",
+   "fieldtype": "Datetime",
+   "label": "Last Connected On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_on",
+   "fieldtype": "Datetime",
+   "label": "Last Sync On",
+   "read_only": 1
+  },
+  {
    "fieldname": "token",
    "fieldtype": "Password",
    "label": "Token",
-   "length": 300
+   "length": 300,
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "url",
    "fieldtype": "Data",
-   "label": "URL"
+   "label": "URL",
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "version",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Version"
+   "label": "Version",
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "phone_id",
    "fieldtype": "Data",
    "label": "Phone ID",
-   "unique": 1
+   "unique": 1,
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "business_id",
    "fieldtype": "Data",
-   "label": "Business ID"
+   "label": "Business ID",
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "app_id",
    "fieldtype": "Data",
-   "label": "App ID"
+   "label": "App ID",
+   "depends_on": "eval:doc.provider=='Meta'"
   },
   {
    "fieldname": "webhook_verify_token",
    "fieldtype": "Data",
    "label": "Webhook Verify Token",
-   "unique": 1
+   "unique": 1,
+   "depends_on": "eval:doc.provider=='Meta'"
+  },
+  {
+   "fieldname": "evolution_api_url",
+   "fieldtype": "Data",
+   "label": "Evolution API URL",
+   "depends_on": "eval:doc.provider=='Evolution API'"
+  },
+  {
+   "fieldname": "evolution_instance_name",
+   "fieldtype": "Data",
+   "label": "Evolution Instance Name",
+   "depends_on": "eval:doc.provider=='Evolution API'"
+  },
+  {
+   "fieldname": "evolution_api_key",
+   "fieldtype": "Password",
+   "label": "Evolution API Key",
+   "depends_on": "eval:doc.provider=='Evolution API'"
   },
   {
    "fieldname": "column_break_byyq",
@@ -82,6 +154,34 @@
    "in_standard_filter": 1,
    "label": "Status",
    "options": "Active\nInactive"
+  },
+  {
+   "fieldname": "section_break_webhook",
+   "fieldtype": "Section Break",
+   "label": "Webhook configuration"
+  },
+  {
+   "fieldname": "auto_register_webhook",
+   "fieldtype": "Check",
+   "label": "Auto Register Webhook",
+   "default": "1"
+  },
+  {
+   "fieldname": "webhook_registered",
+   "fieldtype": "Check",
+   "label": "Webhook Registered",
+   "read_only": 1
+  },
+  {
+   "fieldname": "webhook_url",
+   "fieldtype": "Data",
+   "label": "Webhook URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_default",
+   "fieldtype": "Section Break",
+   "label": "Defaults"
   },
   {
    "default": "0",

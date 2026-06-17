@@ -4,15 +4,13 @@
 # For license information, please see license.txt
 import json
 import frappe
-import magic
-import requests
 from frappe.model.document import Document
-from frappe.integrations.utils import make_post_request, make_request
 from frappe.desk.form.utils import get_pdf_link
 
 from frappe_whatsapp.utils import get_whatsapp_account
+from frappe_whatsapp.providers.factory import get_provider
 
-class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-committing-other-method -- get_settings() sets self._token/_url/_version/_business_id/_app_id/_headers as in-memory scratch for the outbound Meta HTTP call; they are not DocType fields and must not be persisted
+class WhatsAppTemplates(Document):
     """Create whatsapp template."""
 
     def validate(self):
@@ -22,8 +20,8 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
             self.language_code = lang_code.replace("-", "_")
 
         if self.header_type in ["IMAGE", "DOCUMENT"] and self.sample:
-            self.get_session_id(self.sample)
-            self.get_media_id(self.sample)
+            provider = get_provider(self.whatsapp_account)
+            self._media_id = provider.upload_template_media(self.sample)
 
         if not self.is_new():
             self.update_template()
@@ -33,100 +31,14 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
         if not self.whatsapp_account:
             default_whatsapp_account = get_whatsapp_account()
             if not default_whatsapp_account:
-                throw(_("Please set a default outgoing WhatsApp Account or Select available WhatsApp Account"))
+                frappe.throw("Please set a default outgoing WhatsApp Account or Select available WhatsApp Account")
             else:
                 self.whatsapp_account = default_whatsapp_account.name
 
-    def get_session_id(self, file):
-        """Upload media."""
-        self.get_settings()
-
-        # Check if it's a remote file, load data accordingly
-        if file.startswith(('http://', 'https://')):
-            remote_file_data = self._prepare_remote_file(file)
-            file_type = remote_file_data['file_type']
-            file_length = remote_file_data['file_size']
-        else:
-            file_content = self._read_local_file(file)
-            mime = magic.Magic(mime=True)
-            file_type = mime.from_buffer(file_content)
-            file_length = len(file_content)
-
-        payload = {
-            'file_length': file_length,
-            'file_type': file_type,
-            'messaging_product': 'whatsapp'
-        }
-
-        response = make_post_request(
-            f"{self._url}/{self._version}/{self._app_id}/uploads",
-            headers=self._headers,
-            data=json.loads(json.dumps(payload))
-        )
-        self._session_id = response['id']
-
-    def _prepare_remote_file(self, file_url):
-        """Download and return remote file content from URL."""
-        try:
-            response = requests.get(file_url, timeout=30)
-            response.raise_for_status()
-            
-            file_content = response.content
-            file_size = len(file_content)
-            
-            # Get MIME type from Content-Type header or detect from content
-            content_type = response.headers.get('Content-Type', '').split(';')[0].strip()
-            if content_type:
-                file_type = content_type
-            else:
-                # Fallback to magic detection from content
-                mime = magic.Magic(mime=True)
-                file_type = mime.from_buffer(file_content)
-            
-            return {
-                'file_content': file_content,
-                'file_size': file_size,
-                'file_type': file_type
-            }
-        except Exception as e:
-            frappe.throw(f"Failed to download file from URL: {str(e)}")
-
-    def get_media_id(self, file):
-        self.get_settings()
-
-        headers = {
-                "authorization": f"OAuth {self._token}"
-            }
-        
-        # Check if it's a remote file, load data accordingly
-        if file.startswith(('http://', 'https://')):
-            remote_file_data = self._prepare_remote_file(file)
-            file_content = remote_file_data['file_content']
-        else:
-            file_content = self._read_local_file(file)
-
-        payload = file_content
-        response = make_post_request(
-            f"{self._url}/{self._version}/{self._session_id}",
-            headers=headers,
-            data=payload
-        )
-
-        self._media_id = response['h']
-
-    def _read_local_file(self, file_url):
-        # Routed through File so path resolution stays inside Frappe's
-        # vetted file handling — never feed a raw URL to open().
-        return frappe.get_doc("File", {"file_url": file_url}).get_content()
-
-
-    def after_insert(self):  # nosemgrep: frappe-modifying-but-not-committing -- self.actual_name/id/status are persisted via self.db_update() after the Meta round-trip; the static check can't trace through the API call
-        # actual_name / id / status are persisted via self.db_update() below
-        # after the Meta round-trip; the static check can't trace that call.
+    def after_insert(self):
         if self.template_name:
-            self.actual_name = self.template_name.lower().replace(" ", "_")  # nosemgrep: frappe-modifying-but-not-committing
+            self.actual_name = self.template_name.lower().replace(" ", "_")
 
-        self.get_settings()
         data = {
             "name": self.actual_name,
             "language": self.language_code,
@@ -175,25 +87,16 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
             data["components"].append(button_block)
 
         try:
-            response = make_post_request(
-                f"{self._url}/{self._version}/{self._business_id}/message_templates",
-                headers=self._headers,
-                data=json.dumps(data),
-            )
-            self.id = response["id"]  # nosemgrep: frappe-modifying-but-not-committing
-            self.status = response["status"]  # nosemgrep: frappe-modifying-but-not-committing
+            provider = get_provider(self.whatsapp_account)
+            response = provider.create_template(data)
+            self.id = response.get("id")
+            self.status = response.get("status")
             self.db_update()
         except Exception as e:
-            res = frappe.flags.integration_request.json().get("error", {})
-            error_message = res.get("error_user_msg", res.get("message"))
-            frappe.throw(
-                msg=error_message,
-                title=res.get("error_user_title", "Error"),
-            )
+            frappe.throw(str(e))
 
     def update_template(self):
         """Update template to meta."""
-        self.get_settings()
         data = {"components": []}
 
         body = {
@@ -224,7 +127,6 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
                     b["type"] = "QUICK_REPLY"
                 elif btn.button_type == "Multi-Product Message":
                     b["type"] = "MPM"
-                    # MPM buttons often require additional fields like catalog_id
                 elif btn.button_type == "Catalog":
                     b["type"] = "CATALOG"
 
@@ -233,53 +135,18 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
             data["components"].append(button_block)
 
         try:
-            # post template to meta for update
-            make_post_request(
-                f"{self._url}/{self._version}/{self.id}",
-                headers=self._headers,
-                data=json.dumps(data),
-            )
+            provider = get_provider(self.whatsapp_account)
+            provider.update_template(self.id, data)
         except Exception as e:
             raise e
-            # res = frappe.flags.integration_request.json()['error']
-            # frappe.throw(
-            #     msg=res.get('error_user_msg', res.get("message")),
-            #     title=res.get("error_user_title", "Error"),
-            # )
-
-    def get_settings(self):
-        """Get whatsapp settings."""
-        # Underscore-prefixed attributes below are in-memory scratch for the
-        # outbound HTTP call — they are not DocType fields and must not be
-        # persisted. Semgrep's static check can't tell the difference.
-        settings = frappe.get_doc("WhatsApp Account", self.whatsapp_account)
-        self._token = settings.get_password("token")  # nosemgrep: frappe-modifying-but-not-committing-other-method
-        self._url = settings.url  # nosemgrep: frappe-modifying-but-not-committing-other-method
-        self._version = settings.version  # nosemgrep: frappe-modifying-but-not-committing-other-method
-        self._business_id = settings.business_id  # nosemgrep: frappe-modifying-but-not-committing-other-method
-        self._app_id = settings.app_id  # nosemgrep: frappe-modifying-but-not-committing-other-method
-
-        self._headers = {  # nosemgrep: frappe-modifying-but-not-committing-other-method
-            "authorization": f"Bearer {self._token}",
-            "content-type": "application/json",
-        }
 
     def on_trash(self):
-        self.get_settings()
-        url = f"{self._url}/{self._version}/{self._business_id}/message_templates?name={self.actual_name}"
         try:
-            make_request("DELETE", url, headers=self._headers)
-        except Exception:
-            res = frappe.flags.integration_request.json().get("error", {})
-            if res.get("error_user_title") == "Message Template Not Found":
-                frappe.msgprint(
-                    "Deleted locally", res.get("error_user_title", "Error"), alert=True
-                )
-            else:
-                frappe.throw(
-                    msg=res.get("error_user_msg"),
-                    title=res.get("error_user_title", "Error"),
-                )
+            provider = get_provider(self.whatsapp_account)
+            provider.delete_template(self.actual_name)
+        except Exception as e:
+            frappe.log_error("Template Delete Error", str(e))
+            # Just log, allow local deletion even if remote fails
 
     def get_header(self):
         """Get header format."""
@@ -290,38 +157,23 @@ class WhatsAppTemplates(Document):  # nosemgrep: frappe-modifying-but-not-commit
                 samples = self.sample.split(", ")
                 header.update({"example": {"header_text": samples}})
         else:
-            pdf_link = ''
-            if not self.sample:
-                key = frappe.get_doc(self.doctype, self.name).get_document_share_key()
-                link = get_pdf_link(self.doctype, self.name)
-                pdf_link = f"{frappe.utils.get_url()}{link}&key={key}"
-            header.update({"example": {"header_handle": [self._media_id]}})
+            if hasattr(self, "_media_id") and self._media_id:
+                header.update({"example": {"header_handle": [self._media_id]}})
 
         return header
 
 @frappe.whitelist()
 def fetch():
-    """Fetch templates from meta."""
-    """Later improve this code to pass a whatsapp account remove the js funcation so that it is called from whatsapp account doctype """
-    whatsapp_accounts = frappe.get_all('WhatsApp Account', filters={'status': 'Active'}, fields=['name', 'token', 'url', 'version', 'business_id'])
+    """Fetch templates from provider."""
+    whatsapp_accounts = frappe.get_all('WhatsApp Account', filters={'status': 'Active'}, fields=['name'])
 
     for account in whatsapp_accounts:
-        # get credentials
-        token = frappe.get_doc("WhatsApp Account", account.name).get_password("token")
-        url = account.url
-        version = account.version
-        business_id = account.business_id
-
-        headers = {"authorization": f"Bearer {token}", "content-type": "application/json"}
+        provider = get_provider(account.name)
 
         try:
-            response = make_request(
-                "GET",
-                f"{url}/{version}/{business_id}/message_templates",
-                headers=headers,
-            )
+            templates = provider.fetch_templates()
 
-            for template in response["data"]:
+            for template in templates:
                 # set flag to insert or update
                 flags = 1
                 if frappe.db.exists("WhatsApp Templates", {"actual_name": template["name"]}):
@@ -356,11 +208,10 @@ def fetch():
                     elif component["type"] == "BODY":
                         doc.template = component["text"]
                         if component.get("example"):
-    			            # Check if 'body_text' exists before trying to access it
                             if component["example"].get("body_text"):
                                 doc.sample_values = ",".join(
-            	                    component["example"]["body_text"][0]
-                    	        )
+                                    component["example"]["body_text"][0]
+                                )
 
                     # Update buttons
                     elif component["type"] == "BUTTONS":
@@ -378,7 +229,6 @@ def fetch():
                         for i, button in enumerate(component.get("buttons", []), start=1):
                             btn_type_raw = button.get("type")
                             if btn_type_raw not in typeMap:
-                                frappe.log_error("WhatsApp Fetch Error", f"Unknown WhatsApp Button Type: {btn_type_raw}")
                                 continue
 
                             btn = {}
@@ -404,24 +254,10 @@ def fetch():
 
                 upsert_doc_without_hooks(doc, "WhatsApp Button", "buttons")
 
-            return "Successfully fetched templates from meta"
-
         except Exception as e:
-            # Check if frappe.flags.integration_request is set and has a .json() method
-            if hasattr(frappe.flags.integration_request, 'json'):
-                try:
-                    res = frappe.flags.integration_request.json().get("error", {})
-                    error_message = res.get("error_user_msg", res.get("message"))
-                    frappe.throw(
-                        msg=error_message,
-                        title=res.get("error_user_title", "Error"),
-                    )
-                except (json.JSONDecodeError, KeyError):
-                    # Handle cases where the response is not valid JSON or lacks the 'error' key
-                    frappe.throw(f"An unexpected error occurred while fetching templates: {e}")
-            else:
-                # Handle cases where frappe.flags.integration_request doesn't exist or isn't a proper response object
-                frappe.throw(f"An unexpected server error occurred: {e}")
+            frappe.log_error(f"Error fetching templates for account {account.name}: {str(e)}")
+            
+    return "Successfully fetched templates"
 
 def upsert_doc_without_hooks(doc, child_dt, child_field):
     """Insert or update a parent document and its children without hooks."""

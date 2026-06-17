@@ -115,6 +115,11 @@ app_include_js = "/assets/frappe_whatsapp/js/frappe_whatsapp.js"
 # ---------------
 
 scheduler_events = {
+    "cron": {
+        "*/15 * * * *": [
+            "frappe_whatsapp.utils.connection_monitor.check_all_connections"
+        ]
+    },
     "all": [
         "frappe_whatsapp.utils.trigger_whatsapp_notifications_all"
     ],

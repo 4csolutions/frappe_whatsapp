@@ -276,7 +276,7 @@ class EvolutionProvider(WhatsAppProvider):
         }
         try:
             response = requests.post(url, json=data, headers=self.get_headers())
-            if response.status_code == 200:
+            if response.status_code in [200, 201]:
                 resp_data = response.json()
                 return resp_data.get("base64")
             else:

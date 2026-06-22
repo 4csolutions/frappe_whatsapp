@@ -279,6 +279,8 @@ class EvolutionProvider(WhatsAppProvider):
             if response.status_code == 200:
                 resp_data = response.json()
                 return resp_data.get("base64")
+            else:
+                frappe.log_error("Evolution API Get Base64 Failed", f"Status: {response.status_code}, Response: {response.text}")
         except Exception as e:
             frappe.log_error("Evolution API Get Base64 Error", str(e))
         return None

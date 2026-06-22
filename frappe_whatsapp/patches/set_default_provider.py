@@ -23,13 +23,11 @@ def execute():
     }
 
     for old_status, new_status in status_map.items():
-        frappe.db.sql(
-            """
-            UPDATE `tabWhatsApp Message` 
-            SET status = %s 
-            WHERE status = %s
-            """,
-            (new_status, old_status)
-        )
+        WhatsAppMessage = frappe.qb.DocType("WhatsApp Message")
+        (
+            frappe.qb.update(WhatsAppMessage)
+            .set(WhatsAppMessage.status, new_status)
+            .where(WhatsAppMessage.status == old_status)
+        ).run()
         
     frappe.db.commit()

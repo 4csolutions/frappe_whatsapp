@@ -88,9 +88,24 @@ class WhatsAppProvider:
         raise NotImplementedError
 
     def format_number(self, number):
-        if number.startswith("+"):
-            number = number[1:]
-        return number
+        import re
+        
+        # Strip all non-numeric characters (e.g. '+', '-', spaces)
+        clean_number = re.sub(r'\D', '', str(number))
+        
+        # Strip leading zeros
+        while clean_number.startswith('0'):
+            clean_number = clean_number[1:]
+            
+        default_code = self.account.get("default_country_code")
+        if default_code:
+            default_code = re.sub(r'\D', '', str(default_code))
+            
+            # If the number is 10 digits or less, assume it's a local number and prepend country code
+            if len(clean_number) <= 10 and not clean_number.startswith(default_code):
+                clean_number = f"{default_code}{clean_number}"
+                
+        return clean_number
 
     def create_template(self, data):
         raise NotImplementedError

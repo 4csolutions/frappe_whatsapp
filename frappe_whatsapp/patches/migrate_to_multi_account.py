@@ -77,15 +77,13 @@ def get_old_settings_from_singles():
     doctype schema in the multi-account refactor; the data may still
     survive in the singles table. Token is stored in __Auth, not here.
     """
-    result = frappe.db.sql(
-        """
-        SELECT field, value
-        FROM `tabSingles`
-        WHERE doctype = 'WhatsApp Settings'
-        AND field IN %s
-        """,
-        (LEGACY_FIELDS,),
-        as_dict=True,
+    Singles = frappe.qb.DocType("Singles")
+    result = (
+        frappe.qb.from_(Singles)
+        .select(Singles.field, Singles.value)
+        .where(Singles.doctype == 'WhatsApp Settings')
+        .where(Singles.field.isin(LEGACY_FIELDS))
+        .run(as_dict=True)
     )
     if not result:
         return None
@@ -96,11 +94,9 @@ def update_whatsapp_templates(account_name: str):
     # Pre-multi-account template rows have whatsapp_account = NULL (column
     # added by schema migration with no default), not "". The ORM filter
     # {"whatsapp_account": ""} misses NULLs in MariaDB, so use raw SQL.
-    frappe.db.sql(
-        """
-        UPDATE `tabWhatsApp Templates`
-        SET whatsapp_account = %s
-        WHERE whatsapp_account IS NULL OR whatsapp_account = ''
-        """,
-        (account_name,),
-    )
+    wa_templates = frappe.qb.DocType("WhatsApp Templates")
+    (
+        frappe.qb.update(wa_templates)
+        .set(wa_templates.whatsapp_account, account_name)
+        .where((wa_templates.whatsapp_account.isnull()) | (wa_templates.whatsapp_account == ''))
+    ).run()

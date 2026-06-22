@@ -148,12 +148,12 @@ def _process_meta_payload(data):
 
 def _update_meta_status(data):
     if data.get("field") == "message_template_status_update":
-        frappe.db.sql(
-            """UPDATE `tabWhatsApp Templates`
-            SET status = %(event)s
-            WHERE id = %(message_template_id)s""",
-            data['value']
-        )
+        wa_templates = frappe.qb.DocType("WhatsApp Templates")
+        (
+            frappe.qb.update(wa_templates)
+            .set(wa_templates.status, data['value']['event'])
+            .where(wa_templates.id == data['value']['message_template_id'])
+        ).run()
     elif data.get("field") == "messages":
         try:
             status_data = data['value']['statuses'][0]

@@ -31,6 +31,7 @@
   "webhook_registered",
   "webhook_url",
   "section_break_default",
+  "default_country_code",
   "is_default_incoming",
   "is_default_outgoing",
   "allow_auto_read_receipt"
@@ -182,6 +183,12 @@
    "fieldname": "section_break_default",
    "fieldtype": "Section Break",
    "label": "Defaults"
+  },
+  {
+   "fieldname": "default_country_code",
+   "fieldtype": "Data",
+   "label": "Default Country Code",
+   "description": "Automatically prepended to numbers that are 10 digits or less. Example: 91"
   },
   {
    "default": "0",

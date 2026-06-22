@@ -118,16 +118,18 @@ def _process_meta_payload(data):
             elif message_type in ["image", "audio", "video", "document"]:
                 doc_data["message"] = message[message_type].get("caption", "")
                 
+                # Insert the message first so it gets a name
+                message_doc = frappe.get_doc(doc_data).insert(ignore_permissions=True)
+                
                 # Fetch Media later via Provider abstraction instead of hardcoding requests here
                 provider = get_provider(whatsapp_account)
                 
-                if provider:
+                if provider and hasattr(provider, "download_media"):
                     # In meta, media needs to be downloaded.
                     media_id = message[message_type]["id"]
-                    # We can define `download_media` on provider
-                    file_url = provider.download_media(media_id, message.get('from'))
-                    if file_url:
-                        doc_data["attach"] = file_url
+                    provider.download_media(media_id, message_doc)
+                
+                continue
 
             elif message_type == "button":
                 doc_data["message"] = message['button']['text']
@@ -249,27 +251,34 @@ def _process_evolution_payload(data):
             }
             doc_data["content_type"] = media_type_map.get(message_type, "document")
             
+        is_media = message_type in ["imageMessage", "videoMessage", "documentMessage", "audioMessage"]
+        if is_media:
+            message_doc = frappe.get_doc(doc_data).insert(ignore_permissions=True)
+            
             # Evolution API provides base64 in the webhook sometimes, or requires fetching
             base64_data = msg_data.get("base64")
             
             provider = get_provider(whatsapp_account)
             
-            if not base64_data and hasattr(provider, "download_media_from_message"):
+            if base64_data and hasattr(provider, "save_base64_media"):
+                # Use base64 already provided in webhook
+                mimetype = msg_content.get(message_type, {}).get("mimetype", "")
+                provider.save_base64_media(base64_data, message_type, message_doc, mimetype)
+            elif provider and hasattr(provider, "download_media"):
+                # Fetch base64 via API
                 message_obj = {
                     "key": key,
                     "message": msg_content
                 }
-                base64_data = provider.download_media_from_message(message_obj)
-                
-            if base64_data:
-                file_url = provider.save_base64_media(base64_data, message_type, sender)
-                if file_url:
-                    doc_data["attach"] = file_url
-                    
+                provider.download_media(message_obj, message_doc)
+            
+            return
+            
+        elif doc_data.get("message"):
+            frappe.get_doc(doc_data).insert(ignore_permissions=True)
+            
         else:
             doc_data["message"] = str(msg_content)
-
-        if doc_data.get("message") or doc_data.get("attach"):
             frappe.get_doc(doc_data).insert(ignore_permissions=True)
             
     elif event_name == "messages.update":

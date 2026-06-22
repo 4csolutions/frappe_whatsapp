@@ -269,16 +269,26 @@ class EvolutionProvider(WhatsAppProvider):
         except Exception:
             pass
 
-    def download_media_from_message(self, message_obj):
+    def download_media(self, media_data, message_doc):
         url = f"{self.account.evolution_api_url.rstrip('/')}/chat/getBase64FromMediaMessage/{self.account.evolution_instance_name}"
         data = {
-            "message": message_obj
+            "message": media_data
         }
         try:
             response = requests.post(url, json=data, headers=self.get_headers())
             if response.status_code in [200, 201]:
                 resp_data = response.json()
-                return resp_data.get("base64")
+                base64_str = resp_data.get("base64")
+                if base64_str:
+                    # Determine message type (e.g. imageMessage, videoMessage)
+                    msg_content = media_data.get("message", {})
+                    message_keys = list(msg_content.keys())
+                    message_type = next((k for k in message_keys if k != "messageContextInfo"), "documentMessage")
+                    
+                    # Extract mimetype
+                    mimetype = msg_content.get(message_type, {}).get("mimetype", "")
+                    
+                    return self.save_base64_media(base64_str, message_type, message_doc, mimetype)
             else:
                 frappe.log_error("Evolution API Get Base64 Failed", f"Status: {response.status_code}, Response: {response.text}")
         except Exception as e:

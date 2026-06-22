@@ -102,6 +102,48 @@ class MetaProvider(WhatsAppProvider):
         # Alternatively, we could upload via Meta's Media API, but URL is standard.
         return file_url
 
+    def download_media(self, media_id, message_doc):
+        url = f"{self.account.url}/{self.account.version}/{media_id}"
+        try:
+            from frappe.integrations.utils import make_request
+            import requests
+            import mimetypes
+
+            # 1. Fetch Media URL from Graph API
+            response = make_request("GET", url, headers=self.get_headers())
+            if response and response.get("url"):
+                media_url = response.get("url")
+                
+                # 2. Download Binary Data using the same Authorization token
+                file_resp = requests.get(media_url, headers={"Authorization": f"Bearer {self.account.get_password('token')}"})
+                if file_resp.status_code == 200:
+                    content_type = file_resp.headers.get("Content-Type", "")
+                    ext = content_type.split('/')[1] if '/' in content_type else mimetypes.guess_extension(content_type) or "bin"
+                    if ext == "jpe": ext = "jpeg"
+                    
+                    sender = message_doc.get("from")
+                    file_name = f"WA-{sender}-{frappe.generate_hash()[:8]}.{ext}"
+                    
+                    # Save using standard frappe Document to explicitly link
+                    file_doc = frappe.get_doc({
+                        "doctype": "File",
+                        "file_name": file_name,
+                        "attached_to_doctype": "WhatsApp Message",
+                        "attached_to_name": message_doc.name,
+                        "content": file_resp.content,
+                        "attached_to_field": "attach",
+                        "is_private": 0
+                    }).save(ignore_permissions=True)
+                    
+                    # Update the message document
+                    message_doc.attach = file_doc.file_url
+                    message_doc.save(ignore_permissions=True)
+                    
+                    return file_doc.file_url
+        except Exception as e:
+            frappe.log_error("Meta Download Media Error", str(e))
+        return None
+
     def register_webhook(self, webhook_url):
         # Meta webhooks are configured in the Facebook Developer App console.
         # It's not easily automatable via API for standard users.

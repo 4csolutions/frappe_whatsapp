@@ -34,21 +34,26 @@ class WhatsAppProvider:
     def send_read_receipt(self, message_id, sender_number=None):
         raise NotImplementedError
 
-    def save_base64_media(self, base64_data, message_type, sender):
+    def save_base64_media(self, base64_data, message_type, message_doc, mimetype=None):
         """Save base64 media to Frappe and return the file URL"""
         import base64
-        from frappe.utils.file_manager import save_file
+        import mimetypes
         
         if not base64_data:
             return None
             
-        media_ext_map = {
-            "imageMessage": "jpeg",
-            "videoMessage": "mp4",
-            "documentMessage": "pdf",
-            "audioMessage": "ogg"
-        }
-        ext = media_ext_map.get(message_type, "bin")
+        ext = ""
+        if mimetype:
+            ext = mimetype.split('/')[1] if '/' in mimetype else mimetypes.guess_extension(mimetype) or "bin"
+            
+        if not ext:
+            media_ext_map = {
+                "imageMessage": "jpeg",
+                "videoMessage": "mp4",
+                "documentMessage": "pdf",
+                "audioMessage": "ogg"
+            }
+            ext = media_ext_map.get(message_type, "bin")
         
         # Handle prefix if any
         if "," in base64_data:
@@ -56,14 +61,31 @@ class WhatsAppProvider:
             
         try:
             file_content = base64.b64decode(base64_data)
+            sender = message_doc.get("from")
             file_name = f"WA-{sender}-{frappe.generate_hash()[:8]}.{ext}"
             
-            # Save file to Frappe (is_private=0 so it's accessible via web)
-            file_doc = save_file(file_name, file_content, "WhatsApp Message", None, is_private=0)
+            # Save using standard frappe Document to explicitly link
+            file_doc = frappe.get_doc({
+                "doctype": "File",
+                "file_name": file_name,
+                "attached_to_doctype": "WhatsApp Message",
+                "attached_to_name": message_doc.name,
+                "content": file_content,
+                "attached_to_field": "attach",
+                "is_private": 0
+            }).save(ignore_permissions=True)
+            
+            # Update the message document
+            message_doc.attach = file_doc.file_url
+            message_doc.save(ignore_permissions=True)
+            
             return file_doc.file_url
         except Exception as e:
             frappe.log_error("WhatsApp Media Save Error", str(e))
             return None
+
+    def download_media(self, media_data, message_doc):
+        raise NotImplementedError
 
     def format_number(self, number):
         if number.startswith("+"):

@@ -238,7 +238,8 @@ def _process_evolution_payload(data):
                 doc_data["is_reply"] = True
                 
         elif message_type in ["imageMessage", "videoMessage", "documentMessage", "audioMessage"]:
-            doc_data["message"] = msg_content.get(message_type, {}).get("caption", "")
+            caption = msg_content.get(message_type, {}).get("caption", "")
+            doc_data["message"] = caption or f"[{message_type}]"
             
             media_type_map = {
                 "imageMessage": "image",
@@ -249,9 +250,18 @@ def _process_evolution_payload(data):
             doc_data["content_type"] = media_type_map.get(message_type, "document")
             
             # Evolution API provides base64 in the webhook sometimes, or requires fetching
-            base64_data = data.get("data", {}).get("message", {}).get("base64")
+            base64_data = msg_data.get("base64")
+            
+            provider = get_provider(whatsapp_account)
+            
+            if not base64_data and hasattr(provider, "download_media_from_message"):
+                message_obj = {
+                    "key": key,
+                    "message": msg_content
+                }
+                base64_data = provider.download_media_from_message(message_obj)
+                
             if base64_data:
-                provider = get_provider(whatsapp_account)
                 file_url = provider.save_base64_media(base64_data, message_type, sender)
                 if file_url:
                     doc_data["attach"] = file_url

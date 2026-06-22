@@ -268,6 +268,20 @@ class EvolutionProvider(WhatsAppProvider):
             requests.delete(url, headers=self.get_headers())
         except Exception:
             pass
+
+    def download_media_from_message(self, message_obj):
+        url = f"{self.account.evolution_api_url.rstrip('/')}/chat/getBase64FromMediaMessage/{self.account.evolution_instance_name}"
+        data = {
+            "message": message_obj
+        }
+        try:
+            response = requests.post(url, json=data, headers=self.get_headers())
+            if response.status_code == 200:
+                resp_data = response.json()
+                return resp_data.get("base64")
+        except Exception as e:
+            frappe.log_error("Evolution API Get Base64 Error", str(e))
+        return None
             
     def supports_templates(self):
         return self.account.instance_type == "Business"

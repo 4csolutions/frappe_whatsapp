@@ -72,7 +72,11 @@ class WhatsAppMessage(Document):
         provider = get_provider(self.whatsapp_account)
         if hasattr(provider, "send_read_receipt") and self.message_id:
             try:
-                response = provider.send_read_receipt(self.message_id)
+                sender_number = self.get("from")
+                if not sender_number and self.type == "Outgoing":
+                    sender_number = self.to
+                    
+                response = provider.send_read_receipt(self.message_id, sender_number=sender_number)
                 self.db_set("status", "Read")
                 return True
             except Exception as e:

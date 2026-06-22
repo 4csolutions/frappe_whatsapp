@@ -31,7 +31,7 @@ class WhatsAppProvider:
     def supports_qrcode(self):
         return False
 
-    def send_read_receipt(self, message_id):
+    def send_read_receipt(self, message_id, sender_number=None):
         raise NotImplementedError
 
     def format_number(self, number):

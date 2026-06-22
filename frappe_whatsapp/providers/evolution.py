@@ -137,14 +137,23 @@ class EvolutionProvider(WhatsAppProvider):
         }
         return self._make_request(url, data)
 
-    def send_read_receipt(self, message_id):
+    def send_read_receipt(self, message_id, sender_number=None):
         # Evolution has mark as read
         url = f"{self.account.evolution_api_url.rstrip('/')}/chat/markMessageAsRead/{self.account.evolution_instance_name}"
+        
+        # Build remoteJid
+        remote_jid = ""
+        if sender_number:
+            from frappe_whatsapp.utils import format_number
+            clean_number = format_number(sender_number)
+            remote_jid = f"{clean_number}@s.whatsapp.net"
+            
         data = {
             "readMessages": [
                 {
                     "id": message_id,
                     "fromMe": False,
+                    "remoteJid": remote_jid
                 }
             ]
         }

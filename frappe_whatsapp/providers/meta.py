@@ -88,13 +88,14 @@ class MetaProvider(WhatsAppProvider):
         }
         return self._make_request(data)
 
-    def send_read_receipt(self, message_id):
+    def send_read_receipt(self, message_id, sender_number=None):
+        url = f"{self.account.url}/{self.account.version}/{self.account.phone_id}/messages"
         data = {
             "messaging_product": "whatsapp",
             "status": "read",
             "message_id": message_id
         }
-        return self._make_request(data)
+        return self._make_request(data, endpoint=url)
 
     def upload_media(self, file_url):
         # Meta allows sending by URL, so we can just return the URL for now.

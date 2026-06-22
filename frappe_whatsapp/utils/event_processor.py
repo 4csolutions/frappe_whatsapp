@@ -189,9 +189,14 @@ def _process_evolution_payload(data):
         return
         
     if event_name == "messages.upsert":
-        msg_data = data.get("data", {}).get("message", {})
-        # Evolution message parsing
-        # This structure can vary significantly, basic handling below
+        msg_data = data.get("data", {})
+        if isinstance(msg_data, list):
+            msg_data = msg_data[0]
+            
+        # Evolution message parsing (handles both flattened and nested 'message' structures)
+        if "key" not in msg_data and "message" in msg_data:
+            msg_data = msg_data["message"]
+
         key = msg_data.get("key", {})
         from_me = key.get("fromMe", False)
         
@@ -202,6 +207,9 @@ def _process_evolution_payload(data):
         remote_jid = key.get("remoteJid", "")
         sender = remote_jid.split("@")[0]
         
+        if not sender:
+            return
+            
         push_name = msg_data.get("pushName", "")
         
         msg_content = msg_data.get("message", {})
@@ -256,17 +264,33 @@ def _process_evolution_payload(data):
             
     elif event_name == "messages.update":
         # Status update
-        for update in data.get("data", []):
-            msg_id = update.get("key", {}).get("id")
-            status = update.get("update", {}).get("status")
+        update_data = data.get("data", [])
+        
+        # Evolution API may send a list of updates or a single dict update depending on the configuration
+        updates = update_data if isinstance(update_data, list) else [update_data]
+        
+        for update in updates:
+            if not isinstance(update, dict):
+                continue
+                
+            # It may be nested as `{"key": {"id": ...}, "update": {"status": ...}}` or flattened as `{"messageId": ..., "status": ...}`
+            msg_id = update.get("key", {}).get("id") or update.get("messageId")
+            status = update.get("update", {}).get("status") or update.get("status")
             
-            # 1: PENDING, 2: SERVER_ACK, 3: DELIVERY_ACK, 4: READ, 5: PLAYED
+            # Integer statuses: 1: PENDING, 2: SERVER_ACK, 3: DELIVERY_ACK, 4: READ, 5: PLAYED
+            # String statuses: "SERVER_ACK", "DELIVERY_ACK", "READ", "PLAYED", "ERROR"
             status_map = {
                 1: "Queued",
+                "PENDING": "Queued",
                 2: "Sent",
+                "SERVER_ACK": "Sent",
                 3: "Delivered",
+                "DELIVERY_ACK": "Delivered",
                 4: "Read",
-                5: "Read"
+                "READ": "Read",
+                5: "Read",
+                "PLAYED": "Read",
+                "ERROR": "Failed"
             }
             
             unified_status = status_map.get(status)

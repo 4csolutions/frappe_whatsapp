@@ -64,7 +64,8 @@ class WhatsAppMessage(Document):
             frappe.enqueue(
                 "frappe_whatsapp.utils.queue_manager.send_queued_message",
                 queue="short",
-                message_id=self.name
+                message_id=self.name,
+                enqueue_after_commit=True
             )
 
     @frappe.whitelist()

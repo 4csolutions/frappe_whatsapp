@@ -215,7 +215,7 @@ def _process_evolution_payload(data):
         push_name = msg_data.get("pushName", "")
         
         msg_content = msg_data.get("message", {})
-        message_type = list(msg_content.keys())[0] if msg_content else "unknown"
+        message_type = next((k for k in msg_content.keys() if k != "messageContextInfo"), "unknown")
         
         doc_data = {
             "doctype": "WhatsApp Message",

@@ -2,11 +2,11 @@ $(document).on('app_ready', function () {
 	// waiting for page to load completely
 	frappe.router.on("change", () => {
 		var route = frappe.get_route();
-		// all form's menu add the 'Send To Telegram' funcationality
+		// all form's menu add the 'Send To WhatsApp' functionality
 		if (route && route[0] == "Form") {
 			frappe.ui.form.on(route[1], {
 				refresh: function (frm) {
-					frm.page.add_menu_item(__("Send To Whatsapp"), function () {
+					frm.page.add_menu_item(__("Send To WhatsApp"), function () {
 						var user_name = frappe.user.name;
 						var user_full_name = frappe.session.user_fullname;
 						var reference_doctype = frm.doctype;
@@ -43,15 +43,15 @@ $(document).on('app_ready', function () {
 								{ 'label': 'Mobile no', 'fieldname': 'mobile_no', 'fieldtype': 'Data' },
 
 							],
-							'primary_action_label': 'Send',
-							'title': 'Send a Telegram Message',
+							'primary_action_label': __('Send'),
+							'title': __('Send a WhatsApp Message'),
 							primary_action: function () {
 								var values = dialog.get_values();
 								if (values) {
 									var space = "\n" + "\n";
 									// var the_message = "From : " + user_full_name + space + values.subject + space + values.message;
 
-									// send telegram msg
+									// send whatsapp msg
 									frappe.call({
 										method: "frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_message.whatsapp_message.send_template",
 										args: {

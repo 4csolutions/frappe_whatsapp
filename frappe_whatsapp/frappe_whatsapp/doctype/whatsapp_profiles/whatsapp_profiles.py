@@ -39,6 +39,7 @@ class WhatsAppProfiles(Document):
             .run(as_dict=True)
         )
 
+        contact_name = None
         if contact_phones:
             contact_name = contact_phones[0].contact_name
         else:

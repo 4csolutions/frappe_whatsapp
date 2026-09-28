@@ -108,8 +108,9 @@
   {
    "description": "Mobile number field",
    "fieldname": "field_name",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "label": "Field Name",
+   "length": 255,
    "mandatory_depends_on": "eval:['DocType Event'].includes(doc.notification_type)"
   },
   {

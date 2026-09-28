@@ -268,3 +268,86 @@ class TestWhatsAppNotification(IntegrationTestCase):
         doc.insert(ignore_permissions=True)
         self.assertEqual(doc.notification_type, "Scheduler Event")
         self.assertEqual(doc.event_frequency, "Daily")
+
+    def test_validate_linked_field_name(self):
+        """Test validation passes for valid linked field path."""
+        # Contact has 'user' which is a Link to User, and User has 'mobile_no'
+        doc = self._make_notification(
+            notification_name="Test Notif ValidLink",
+            reference_doctype="Contact",
+            field_name="user.mobile_no"
+        )
+        self.assertIsNotNone(doc.name)
+
+    def test_validate_invalid_linked_field_name(self):
+        """Test validation fails for invalid linked field path."""
+        with self.assertRaises(frappe.ValidationError):
+            self._make_notification(
+                notification_name="Test Notif BadLinkField",
+                reference_doctype="Contact",
+                field_name="user.nonexistent_field_xyz"
+            )
+
+    def test_validate_non_link_intermediate_field(self):
+        """Test validation fails when intermediate field is not a Link."""
+        with self.assertRaises(frappe.ValidationError):
+            self._make_notification(
+                notification_name="Test Notif NotLinkField",
+                reference_doctype="Contact",
+                field_name="email_id.mobile_no"
+            )
+
+    @patch("frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_notification.whatsapp_notification.make_post_request")
+    def test_send_template_message_with_linked_field(self, mock_post):
+        """Test sending message resolving phone number from linked doctype."""
+        mock_post.return_value = {
+            "messages": [{"id": "wamid.notif_test_link"}],
+            "contacts": [{"wa_id": "919988776655"}]
+        }
+        frappe.flags.integration_request = MagicMock()
+        frappe.flags.integration_request.json.return_value = {
+            "messages": [{"id": "wamid.notif_test_link"}]
+        }
+
+        # Set Administrator mobile_no
+        admin_user = frappe.get_doc("User", "Administrator")
+        admin_user.mobile_no = "919988776655"
+        admin_user.save(ignore_permissions=True)
+
+        # Create or fetch a test Contact linked to Administrator
+        contact = frappe.get_doc({
+            "doctype": "Contact",
+            "first_name": "Test",
+            "last_name": "Contact",
+            "user": "Administrator"
+        })
+
+        doc = self._make_notification(
+            notification_name="Test Notif LinkedSend",
+            reference_doctype="Contact",
+            field_name="user.mobile_no",
+            fields=["user.first_name", "first_name"],
+        )
+
+        doc.send_template_message(contact)
+
+        self.assertTrue(mock_post.called)
+        call_args = mock_post.call_args
+        sent_data = json.loads(call_args.kwargs.get("data", call_args[1].get("data", "")))
+        self.assertEqual(sent_data["to"], "919988776655")
+
+    def test_get_doctype_fields(self):
+        """Test get_doctype_fields whitelist method returns phone and parameter fields."""
+        from frappe_whatsapp.frappe_whatsapp.doctype.whatsapp_notification.whatsapp_notification import get_doctype_fields
+
+        data = get_doctype_fields("Contact")
+        self.assertIn("phone_options", data)
+        self.assertIn("all_fields", data)
+
+        phone_vals = [o["value"] for o in data["phone_options"]]
+        all_vals = [o["value"] for o in data["all_fields"]]
+
+        self.assertIn("owner", phone_vals)
+        self.assertIn("user.mobile_no", phone_vals)
+        self.assertIn("user.first_name", all_vals)
+

@@ -11,9 +11,10 @@
  "fields": [
   {
    "fieldname": "field_name",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
-   "label": "Field name"
+   "label": "Field name",
+   "length": 255
   }
  ],
  "index_web_pages_for_search": 1,

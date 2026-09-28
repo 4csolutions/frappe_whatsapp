@@ -4,6 +4,7 @@ import json
 import frappe
 
 from frappe import _dict, _
+from frappe.model import NO_VALUE_FIELDS
 from frappe.model.document import Document
 from frappe.utils.safe_exec import get_safe_globals, safe_exec
 from frappe.desk.form.utils import get_pdf_link
@@ -12,20 +13,63 @@ from frappe.utils import add_to_date, nowdate, datetime
 from frappe_whatsapp.utils import get_whatsapp_account
 
 
+def resolve_document_field_value(doc, field_path, formatted=False):
+    """Resolve field value from doc or linked doc using dot notation (e.g. 'patient.mobile', 'customer.mobile_no', 'owner')."""
+    if not doc or not field_path:
+        return None
+
+    field_path = field_path.strip()
+    if field_path == "owner":
+        owner = doc.get("owner") if hasattr(doc, "get") else getattr(doc, "owner", None)
+        if owner:
+            return frappe.db.get_value("User", owner, "mobile_no")
+        return None
+
+    parts = field_path.split(".")
+    current = doc
+    for idx, part in enumerate(parts):
+        is_last = (idx == len(parts) - 1)
+        if current is None:
+            return None
+
+        if is_last:
+            if formatted and isinstance(current, Document):
+                return current.get_formatted(part)
+            if hasattr(current, "get"):
+                val = current.get(part)
+            else:
+                val = getattr(current, part, None)
+            return val
+        else:
+            # Traversal step
+            if hasattr(current, "get"):
+                link_val = current.get(part)
+                doctype_name = current.get("doctype") if hasattr(current, "get") else getattr(current, "doctype", None)
+            else:
+                link_val = getattr(current, part, None)
+                doctype_name = getattr(current, "doctype", None)
+
+            if not link_val or not doctype_name:
+                return None
+
+            meta = frappe.get_meta(doctype_name)
+            df = meta.get_field(part)
+            if df and df.fieldtype == "Link" and df.options:
+                current = frappe.get_cached_doc(df.options, link_val)
+            else:
+                return None
+
+    return None
+
+
 class WhatsAppNotification(Document):
     """Notification."""
 
     def validate(self):
         """Validate."""
-        if self.notification_type == "DocType Event":
-            fields = frappe.get_doc("DocType", self.reference_doctype).fields
-            fields += frappe.get_all(
-                "Custom Field",
-                filters={"dt": self.reference_doctype},
-                fields=["fieldname"]
-            )
-            if not any(field.fieldname == self.field_name for field in fields): # noqa
-                frappe.throw(_("Field name {0} does not exists").format(self.field_name))
+        if self.notification_type == "DocType Event" and self.field_name:
+            self.validate_field_path(self.reference_doctype, self.field_name)
+
         if self.custom_attachment:
             if not self.attach and not self.attach_from_field:
                 frappe.throw(_("Either {0} a file or add a {1} to send attachemt").format(
@@ -40,6 +84,28 @@ class WhatsAppNotification(Document):
                     self.set_property_after_alert,
                     self.reference_doctype,
                 ))
+
+    def validate_field_path(self, doctype, field_path):
+        """Validate field or linked dot-notation path exists."""
+        if field_path == "owner":
+            return
+
+        parts = field_path.strip().split(".")
+        current_dt = doctype
+        for idx, part in enumerate(parts):
+            if not frappe.db.exists("DocType", current_dt):
+                frappe.throw(_("DocType {0} does not exist").format(current_dt))
+
+            meta = frappe.get_meta(current_dt)
+            df = meta.get_field(part)
+            if not df:
+                frappe.throw(_("Field name {0} does not exist on {1}").format(part, current_dt))
+
+            is_last = (idx == len(parts) - 1)
+            if not is_last:
+                if df.fieldtype != "Link" or not df.options:
+                    frappe.throw(_("Field {0} on {1} is not a Link field").format(part, current_dt))
+                current_dt = df.options
 
 
     def send_scheduled_message(self) -> dict:
@@ -90,7 +156,7 @@ class WhatsAppNotification(Document):
 
         if template:
             if self.field_name:
-                phone_number = phone_no or doc_data.get(self.field_name)
+                phone_number = phone_no or resolve_document_field_value(doc, self.field_name)
             else:
                 phone_number = phone_no
 
@@ -102,12 +168,18 @@ class WhatsAppNotification(Document):
             body_param = {}
             if self.fields:
                 for i, field in enumerate(self.fields):
-                    if isinstance(doc, Document):
-                        value = doc.get_formatted(field.field_name)
+                    fn = field.field_name
+                    if "." in fn or fn == "owner":
+                        value = resolve_document_field_value(doc, fn, formatted=True)
+                    elif isinstance(doc, Document):
+                        value = doc.get_formatted(fn)
                     else: 
-                        value = doc_data[field.field_name]
+                        value = doc_data.get(fn)
                         if isinstance(value, (datetime.date, datetime.datetime)):
                             value = str(value)
+
+                    if isinstance(value, (datetime.date, datetime.datetime)):
+                        value = str(value)
 
                     body_param[str(i)] = value
 
@@ -281,3 +353,74 @@ def trigger_notifications(method="daily"):
         for d in doc_list:
             alert = frappe.get_doc("WhatsApp Notification", d.name)
             alert.get_documents_for_today()
+
+
+@frappe.whitelist()
+def get_doctype_fields(doctype):
+    """Return mobile/phone field options and all parameter field options for a doctype and its linked doctypes."""
+    if not doctype or not frappe.db.exists("DocType", doctype):
+        return {"phone_options": [], "all_fields": []}
+
+    meta = frappe.get_meta(doctype)
+    phone_options = [
+        {"value": "owner", "label": f"owner ({_('Owner')})"}
+    ]
+    all_fields = [
+        {"value": "owner", "label": f"owner ({_('Owner')})"}
+    ]
+
+    def is_phone_field(df):
+        fn = (df.fieldname or "").lower()
+        opt = (df.options or "").lower()
+        return (
+            df.fieldtype == "Phone"
+            or opt in ("phone", "mobile")
+            or any(kw in fn for kw in ("mobile", "phone", "whatsapp", "contact_no"))
+        )
+
+    # 1. Direct fields
+    for df in meta.fields:
+        if df.fieldtype in NO_VALUE_FIELDS:
+            continue
+
+        label_desc = f"{df.fieldname} ({_(df.label or df.fieldname)})"
+        all_fields.append({"value": df.fieldname, "label": label_desc})
+        if is_phone_field(df) or df.fieldtype in ("Data", "Phone"):
+            phone_options.append({"value": df.fieldname, "label": label_desc})
+
+    # 2. Linked DocTypes
+    for df in meta.fields:
+        if df.fieldtype == "Link" and df.options and df.options != doctype:
+            if not frappe.db.exists("DocType", df.options):
+                continue
+            linked_meta = frappe.get_meta(df.options)
+            link_label = _(df.label or df.fieldname)
+            for ldf in linked_meta.fields:
+                if ldf.fieldtype in NO_VALUE_FIELDS:
+                    continue
+                path_val = f"{df.fieldname}.{ldf.fieldname}"
+                path_label = f"{path_val} ({link_label} > {_(ldf.label or ldf.fieldname)})"
+                all_fields.append({"value": path_val, "label": path_label})
+                if is_phone_field(ldf) or ldf.fieldtype in ("Phone", "Data"):
+                    phone_options.append({"value": path_val, "label": path_label})
+
+    # Deduplicate
+    unique_phone = []
+    seen_phone = set()
+    for o in phone_options:
+        if o["value"] not in seen_phone:
+            seen_phone.add(o["value"])
+            unique_phone.append(o)
+
+    unique_all = []
+    seen_all = set()
+    for o in all_fields:
+        if o["value"] not in seen_all:
+            seen_all.add(o["value"])
+            unique_all.append(o)
+
+    return {
+        "phone_options": unique_phone,
+        "all_fields": unique_all,
+    }
+

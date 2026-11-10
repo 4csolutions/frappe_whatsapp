@@ -110,8 +110,7 @@
    "fieldname": "field_name",
    "fieldtype": "Select",
    "label": "Field Name",
-   "length": 255,
-   "mandatory_depends_on": "eval:['DocType Event'].includes(doc.notification_type)"
+   "length": 255
   },
   {
    "fieldname": "column_break_12",

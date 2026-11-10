@@ -144,15 +144,43 @@ class WhatsAppNotification(Document):
         if self.disabled:
             return
 
-        doc_data = doc.as_dict()
-        if self.condition and not ignore_condition:
-            # check if condition satisfies
-            if not frappe.safe_eval(
-                self.condition, get_safe_globals(), dict(doc=doc_data)
-            ):
-                return
-
+        doc_data = doc.as_dict() if isinstance(doc, Document) else doc
         template = default_template or frappe.get_doc("WhatsApp Templates", self.template)
+
+        if self.condition and not ignore_condition:
+            # Check if condition contains multiline code or returns _data_list/_contact_list
+            condition_str = self.condition.strip()
+            if "_data_list" in condition_str or "_contact_list" in condition_str or "\n" in condition_str:
+                _context = dict(doc=doc, notification=self)
+                safe_exec(self.condition, get_safe_globals(), _context)
+
+                # 1. If _data_list was populated in code
+                data_list = self.get("_data_list") or _context.get("_data_list")
+                if data_list:
+                    for item in data_list:
+                        target_doc = doc
+                        if item.get("name") and item.get("name") != doc.name:
+                            target_doc = frappe.get_doc(self.reference_doctype, item.get("name"))
+                        target_phone = item.get("phone_no") or item.get("phone")
+                        if target_phone:
+                            self.send_template_message(target_doc, target_phone, template, ignore_condition=True)
+                    return
+
+                # 2. If _contact_list was populated in code
+                contact_list = self.get("_contact_list") or _context.get("_contact_list")
+                if contact_list:
+                    for contact_phone in contact_list:
+                        if contact_phone:
+                            self.send_template_message(doc, contact_phone, template, ignore_condition=True)
+                    return
+
+                # If no list was returned and condition evaluated to false/empty, stop
+                if not _context.get("_passed", True):
+                    return
+            else:
+                # Simple boolean expression evaluation
+                if not frappe.safe_eval(self.condition, get_safe_globals(), dict(doc=doc_data)):
+                    return
 
         if template:
             if self.field_name:
@@ -366,7 +394,10 @@ def get_doctype_fields(doctype):
         {"value": "owner", "label": f"owner ({_('Owner')})"}
     ]
     all_fields = [
-        {"value": "owner", "label": f"owner ({_('Owner')})"}
+        {"value": "name", "label": f"name ({_('ID')})"},
+        {"value": "owner", "label": f"owner ({_('Owner')})"},
+        {"value": "creation", "label": f"creation ({_('Created On')})"},
+        {"value": "modified", "label": f"modified ({_('Last Modified Date')})"}
     ]
 
     def is_phone_field(df):

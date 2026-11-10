@@ -154,8 +154,12 @@ class WhatsAppNotification(Document):
                 _context = dict(doc=doc, notification=self)
                 safe_exec(self.condition, get_safe_globals(), _context)
 
-                # 1. If _data_list was populated in code
-                data_list = self.get("_data_list") or _context.get("_data_list")
+                # 1. If _data_list was populated in code (supports doc.set("_data_list", ...), notification.set(...), or _data_list = ...)
+                data_list = (
+                    doc.get("_data_list")
+                    or self.get("_data_list")
+                    or _context.get("_data_list")
+                )
                 if data_list:
                     for item in data_list:
                         target_doc = doc
@@ -167,7 +171,11 @@ class WhatsAppNotification(Document):
                     return
 
                 # 2. If _contact_list was populated in code
-                contact_list = self.get("_contact_list") or _context.get("_contact_list")
+                contact_list = (
+                    doc.get("_contact_list")
+                    or self.get("_contact_list")
+                    or _context.get("_contact_list")
+                )
                 if contact_list:
                     for contact_phone in contact_list:
                         if contact_phone:
